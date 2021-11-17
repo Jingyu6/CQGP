@@ -6,11 +6,11 @@ from d3rlpy.datasets import get_dataset
 from d3rlpy.metrics import evaluate_on_environment
 from sklearn.model_selection import train_test_split
 
-from visualization.data_parser import D3rlpyCSVDataParser
-from visualization.data_plot import plot_records_list, plot_records_in_dir
+from visualization.data_plot import plot_records_in_dir
+from algos.soft_cql import DiscreteSoftCQL
 
 ENV_NAME = 'cartpole-random'
-ALGOS = [DQN, DiscreteCQL, DiscreteBC, DiscreteSAC, DiscreteBCQ]
+ALGOS = [DQN, DiscreteCQL, DiscreteBC, DiscreteSAC, DiscreteBCQ, DiscreteSoftCQL]
 N_EPOCHS = 15
 N_TRIALS = 3
 
