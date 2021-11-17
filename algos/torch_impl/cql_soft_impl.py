@@ -17,16 +17,6 @@ from d3rlpy.algos.torch.cql_impl import CQLImpl, DiscreteCQLImpl
 
 class CQLSoftImpl(CQLImpl):
 
-    _alpha_learning_rate: float
-    _alpha_optim_factory: OptimizerFactory
-    _initial_alpha: float
-    _alpha_threshold: float
-    _conservative_weight: float
-    _n_action_samples: int
-    _soft_q_backup: bool
-    _log_alpha: Optional[Parameter]
-    _alpha_optim: Optional[Optimizer]
-
     def __init__(
         self,
         observation_shape: Sequence[int],
@@ -63,7 +53,9 @@ class CQLSoftImpl(CQLImpl):
             actor_learning_rate=actor_learning_rate,
             critic_learning_rate=critic_learning_rate,
             temp_learning_rate=temp_learning_rate,
-            actor_optim_factory=actor_optim_factory,
+            alpha_learning_rate = alpha_learning_rate,
+            alpha_optim_factory = alpha_optim_factory,
+            actor_optim_factory = actor_optim_factory,
             critic_optim_factory=critic_optim_factory,
             temp_optim_factory=temp_optim_factory,
             actor_encoder_factory=actor_encoder_factory,
@@ -74,18 +66,17 @@ class CQLSoftImpl(CQLImpl):
             n_critics=n_critics,
             target_reduction_type=target_reduction_type,
             initial_temperature=initial_temperature,
+            initial_alpha=initial_alpha,
+            alpha_threshold=alpha_threshold,
+            conservative_weight=conservative_weight,
+            n_action_samples=n_action_samples,
+            soft_q_backup=soft_q_backup,
             use_gpu=use_gpu,
             scaler=scaler,
             action_scaler=action_scaler,
             reward_scaler=reward_scaler,
         )
-        self._alpha_learning_rate = alpha_learning_rate
-        self._alpha_optim_factory = alpha_optim_factory
-        self._initial_alpha = initial_alpha
-        self._alpha_threshold = alpha_threshold
-        self._conservative_weight = conservative_weight
-        self._n_action_samples = n_action_samples
-        self._soft_q_backup = soft_q_backup
+
 
         # initialized in build
         self._log_alpha = None
