@@ -46,7 +46,7 @@ def plot_records_list(
 		value_mean = np.mean(values, axis=0)
 		value_std = np.std(values, axis=0)
 
-		axes.plot(horizon, value_mean)
+		axes.plot(horizon, value_mean, **kwargs)
 		axes.fill_between(horizon, value_mean - value_std, value_mean + value_std, alpha=0.2, interpolate=True)
 
 	axes.set_title('{}: {} plots of {} over {} trials'.format(

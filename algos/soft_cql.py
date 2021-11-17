@@ -17,12 +17,12 @@ from d3rlpy.gpu import Device
 from d3rlpy.models.encoders import EncoderFactory
 from d3rlpy.models.optimizers import AdamFactory, OptimizerFactory
 from d3rlpy.models.q_functions import QFunctionFactory
-from d3rlpy.algos.cql import CQL, DiscreteCQL
-from .torch_impl.cql_soft_impl import CQLSoftImpl, DiscreteCQLSoftImpl
+from d3rlpy.algos.base import AlgoBase
+from d3rlpy.algos.dqn import DoubleDQN
 
+from .torch_impl.soft_cql_impl import SoftCQLImpl, DiscreteSoftCQLImpl
 
-class CQLSoft(CQL):
-
+class SoftCQL(AlgoBase):
     _actor_learning_rate: float
     _critic_learning_rate: float
     _temp_learning_rate: float
@@ -44,7 +44,7 @@ class CQLSoft(CQL):
     _n_action_samples: int
     _soft_q_backup: bool
     _use_gpu: Optional[Device]
-    _impl: Optional[CQLSoftImpl]
+    _impl: Optional[SoftCQLImpl]
 
     def __init__(
         self,
@@ -77,7 +77,7 @@ class CQLSoft(CQL):
         scaler: ScalerArg = None,
         action_scaler: ActionScalerArg = None,
         reward_scaler: RewardScalerArg = None,
-        impl: Optional[CQLSoftImpl] = None,
+        impl: Optional[SoftCQLImpl] = None,
         **kwargs: Any,
     ):
         super().__init__(
@@ -116,7 +116,7 @@ class CQLSoft(CQL):
     def _create_impl(
         self, observation_shape: Sequence[int], action_size: int
     ) -> None:
-        self._impl = CQLSoftImpl(
+        self._impl = SoftCQLImpl(
             observation_shape=observation_shape,
             action_size=action_size,
             actor_learning_rate=self._actor_learning_rate,
@@ -147,11 +147,39 @@ class CQLSoft(CQL):
         )
         self._impl.build()
 
+    def _update(self, batch: TransitionMiniBatch) -> Dict[str, float]:
+        assert self._impl is not None, IMPL_NOT_INITIALIZED_ERROR
+
+        metrics = {}
+
+        # lagrangian parameter update for SAC temperature
+        if self._temp_learning_rate > 0:
+            temp_loss, temp = self._impl.update_temp(batch)
+            metrics.update({"temp_loss": temp_loss, "temp": temp})
+
+        # lagrangian parameter update for conservative loss weight
+        if self._alpha_learning_rate > 0:
+            alpha_loss, alpha = self._impl.update_alpha(batch)
+            metrics.update({"alpha_loss": alpha_loss, "alpha": alpha})
+
+        critic_loss = self._impl.update_critic(batch)
+        metrics.update({"critic_loss": critic_loss})
+
+        actor_loss = self._impl.update_actor(batch)
+        metrics.update({"actor_loss": actor_loss})
+
+        self._impl.update_critic_target()
+        self._impl.update_actor_target()
+
+        return metrics
+
+    def get_action_type(self) -> ActionSpace:
+        return ActionSpace.CONTINUOUS
 
 
-class DiscreteCQLSoft(DiscreteCQL):
+class DiscreteSoftCQL(DoubleDQN):
     _alpha: float
-    _impl: Optional[DiscreteCQLSoftImpl]
+    _impl: Optional[DiscreteSoftCQLImpl]
 
     def __init__(
         self,
@@ -171,7 +199,7 @@ class DiscreteCQLSoft(DiscreteCQL):
         use_gpu: UseGPUArg = False,
         scaler: ScalerArg = None,
         reward_scaler: RewardScalerArg = None,
-        impl: Optional[DiscreteCQLSoftImpl] = None,
+        impl: Optional[DiscreteSoftCQLImpl] = None,
         **kwargs: Any,
     ):
         super().__init__(
@@ -197,7 +225,7 @@ class DiscreteCQLSoft(DiscreteCQL):
     def _create_impl(
         self, observation_shape: Sequence[int], action_size: int
     ) -> None:
-        self._impl = DiscreteCQLSoftImpl(
+        self._impl = DiscreteSoftCQLImpl(
             observation_shape=observation_shape,
             action_size=action_size,
             learning_rate=self._learning_rate,

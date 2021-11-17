@@ -1,7 +1,6 @@
 import pandas as pd # type: ignore
 
-import os.path
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import List, Dict, Any, Optional, Union, Callable, Tuple
 from abc import ABC, abstractmethod
 
@@ -82,6 +81,7 @@ class CSVDataParser(DataParser):
 		trial_name: str = None,
 		value_description: str = 'value'
 	) -> Records:
+		print(csv_path)
 		assert Path(csv_path).is_file(), 'Invalid csv file path.'
 		data = pd.read_csv(csv_path, names=['epoch', 'step', value_description])
 		parsed_data = Records(			

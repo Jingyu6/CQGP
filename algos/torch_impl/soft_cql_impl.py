@@ -7,15 +7,18 @@ import torch.nn.functional as F
 from torch.optim import Optimizer
 
 from d3rlpy.gpu import Device
+from d3rlpy.models.builders import create_parameter
 from d3rlpy.models.encoders import EncoderFactory
 from d3rlpy.models.optimizers import OptimizerFactory
 from d3rlpy.models.q_functions import QFunctionFactory
 from d3rlpy.models.torch import Parameter
 from d3rlpy.preprocessing import ActionScaler, RewardScaler, Scaler
-from d3rlpy.algos.torch.cql_impl import CQLImpl, DiscreteCQLImpl
+from d3rlpy.torch_utility import TorchMiniBatch, torch_api, train_api
+from d3rlpy.algos.torch.dqn_impl import DoubleDQNImpl
+from d3rlpy.algos.torch.sac_impl import SACImpl
 
 
-class CQLSoftImpl(CQLImpl):
+class SoftCQLImpl(SACImpl):
 
     _alpha_learning_rate: float
     _alpha_optim_factory: OptimizerFactory
@@ -91,6 +94,107 @@ class CQLSoftImpl(CQLImpl):
         self._log_alpha = None
         self._alpha_optim = None
 
+    def build(self) -> None:
+        self._build_alpha()
+        super().build()
+        self._build_alpha_optim()
+
+    def _build_alpha(self) -> None:
+        initial_val = math.log(self._initial_alpha)
+        self._log_alpha = create_parameter((1, 1), initial_val)
+
+    def _build_alpha_optim(self) -> None:
+        assert self._log_alpha is not None
+        self._alpha_optim = self._alpha_optim_factory.create(
+            self._log_alpha.parameters(), lr=self._alpha_learning_rate
+        )
+
+    def compute_critic_loss(
+        self, batch: TorchMiniBatch, q_tpn: torch.Tensor
+    ) -> torch.Tensor:
+        loss = super().compute_critic_loss(batch, q_tpn)
+        conservative_loss = self._compute_conservative_loss(
+            batch.observations, batch.actions, batch.next_observations
+        )
+        return loss + conservative_loss
+
+    @train_api
+    @torch_api()
+    def update_alpha(self, batch: TorchMiniBatch) -> np.ndarray:
+        assert self._alpha_optim is not None
+        assert self._q_func is not None
+        assert self._log_alpha is not None
+
+        # Q function should be inference mode for stability
+        self._q_func.eval()
+
+        self._alpha_optim.zero_grad()
+
+        # the original implementation does scale the loss value
+        loss = -self._compute_conservative_loss(
+            batch.observations, batch.actions, batch.next_observations
+        )
+
+        loss.backward()
+        self._alpha_optim.step()
+
+        cur_alpha = self._log_alpha().exp().cpu().detach().numpy()[0][0]
+
+        return loss.cpu().detach().numpy(), cur_alpha
+
+    def _compute_policy_is_values(
+        self, policy_obs: torch.Tensor, value_obs: torch.Tensor
+    ) -> torch.Tensor:
+        assert self._policy is not None
+        assert self._q_func is not None
+        with torch.no_grad():
+            policy_actions, n_log_probs = self._policy.sample_n_with_log_prob(
+                policy_obs, self._n_action_samples
+            )
+
+        obs_shape = value_obs.shape
+
+        repeated_obs = value_obs.expand(self._n_action_samples, *obs_shape)
+        # (n, batch, observation) -> (batch, n, observation)
+        transposed_obs = repeated_obs.transpose(0, 1)
+        # (batch, n, observation) -> (batch * n, observation)
+        flat_obs = transposed_obs.reshape(-1, *obs_shape[1:])
+        # (batch, n, action) -> (batch * n, action)
+        flat_policy_acts = policy_actions.reshape(-1, self.action_size)
+
+        # estimate action-values for policy actions
+        policy_values = self._q_func(flat_obs, flat_policy_acts, "none")
+        policy_values = policy_values.view(
+            self._n_critics, obs_shape[0], self._n_action_samples
+        )
+        log_probs = n_log_probs.view(1, -1, self._n_action_samples)
+
+        # importance sampling
+        return policy_values - log_probs
+
+    def _compute_random_is_values(self, obs: torch.Tensor) -> torch.Tensor:
+        assert self._q_func is not None
+
+        repeated_obs = obs.expand(self._n_action_samples, *obs.shape)
+        # (n, batch, observation) -> (batch, n, observation)
+        transposed_obs = repeated_obs.transpose(0, 1)
+        # (batch, n, observation) -> (batch * n, observation)
+        flat_obs = transposed_obs.reshape(-1, *obs.shape[1:])
+
+        # estimate action-values for actions from uniform distribution
+        # uniform distribution between [-1.0, 1.0]
+        flat_shape = (obs.shape[0] * self._n_action_samples, self._action_size)
+        zero_tensor = torch.zeros(flat_shape, device=self._device)
+        random_actions = zero_tensor.uniform_(-1.0, 1.0)
+        random_values = self._q_func(flat_obs, random_actions, "none")
+        random_values = random_values.view(
+            self._n_critics, obs.shape[0], self._n_action_samples
+        )
+        random_log_probs = math.log(0.5 ** self._action_size)
+
+        # importance sampling
+        return random_values - random_log_probs
+
     def _compute_conservative_loss(
         self, obs_t: torch.Tensor, act_t: torch.Tensor, obs_tp1: torch.Tensor
     ) -> torch.Tensor:
@@ -122,8 +226,28 @@ class CQLSoftImpl(CQLImpl):
 
         return clipped_alpha * (scaled_loss - self._alpha_threshold)
 
+    def compute_target(self, batch: TorchMiniBatch) -> torch.Tensor:
+        if self._soft_q_backup:
+            target_value = super().compute_target(batch)
+        else:
+            target_value = self._compute_deterministic_target(batch)
+        return target_value
 
-class DiscreteCQLSoftImpl(DiscreteCQLImpl):
+    def _compute_deterministic_target(
+        self, batch: TorchMiniBatch
+    ) -> torch.Tensor:
+        assert self._policy
+        assert self._targ_q_func
+        with torch.no_grad():
+            action = self._policy.best_action(batch.next_observations)
+            return self._targ_q_func.compute_target(
+                batch.next_observations,
+                action,
+                reduction=self._target_reduction_type,
+            )
+
+
+class DiscreteSoftCQLImpl(DoubleDQNImpl):
     _alpha: float
 
     def __init__(
@@ -157,6 +281,17 @@ class DiscreteCQLSoftImpl(DiscreteCQLImpl):
             reward_scaler=reward_scaler,
         )
         self._alpha = alpha
+
+    def compute_loss(
+        self,
+        batch: TorchMiniBatch,
+        q_tpn: torch.Tensor,
+    ) -> torch.Tensor:
+        loss = super().compute_loss(batch, q_tpn)
+        conservative_loss = self._compute_conservative_loss(
+            batch.observations, batch.actions.long()
+        )
+        return loss + self._alpha * conservative_loss
 
     def _compute_conservative_loss(
         self, obs_t: torch.Tensor, act_t: torch.Tensor
