@@ -23,7 +23,8 @@ class SklearnImplBase(AlgoImplBase):
             return self._predict_best_action(states)
         else:
             # later use a decorator for conversion
-            raise TypeError
+            states = np.array(states)
+            return self._predict_best_action(states)
 
     def _predict_best_action(self, states: np.ndarray) -> np.ndarray:
         raise NotImplementedError

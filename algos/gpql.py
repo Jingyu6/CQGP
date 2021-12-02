@@ -9,14 +9,12 @@ from .sklearn_impl.gpql_impl import GPQLImpl
 
 class GPQL(AlgoBase):
 
-    _learning_rate: float
     _impl: Optional[GPQLImpl]
     _gamma: float
 
     def __init__(
         self,
         *,
-		learning_rate: float = 6.25e-5,
 		batch_size: int = 32,
 		n_steps: int = 1,
 		gamma: float = 0.99,
@@ -34,7 +32,6 @@ class GPQL(AlgoBase):
             reward_scaler=None,
             kwargs=kwargs,
         )
-        self._learning_rate = learning_rate
         self._impl = impl
         self._gamma = gamma
 
@@ -44,7 +41,6 @@ class GPQL(AlgoBase):
         self._impl = GPQLImpl(
             observation_shape=observation_shape,
         	action_size=action_size,
-        	learning_rate=self._learning_rate,
         	gamma=self._gamma,
         )
         self._impl.build()
