@@ -193,7 +193,6 @@ class GPQLFullBuffer:
                 np.mean(self._output_buffer[:self._cur_size]), np.std(self._output_buffer[:self._cur_size]))
         return s
 
-
 class GPQFunction:
 
     _buffer: GPQLBuffer
@@ -291,14 +290,15 @@ class GPMultiUpdateQFunction:
         self._gamma = gamma
         
         self._cur_update_cnt = 0
-        self._update_interval = 50
+        self._update_interval = 20
         self._update_steps = 30
+
+        self._iter_cnt = 0
 
     def __call__(
         self, 
         states: np.ndarray, 
-        return_std: bool = False,
-        use_target: bool = False
+        return_std: bool = False
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """ return shape [B, A] """
         batch_size = states.shape[0]
@@ -307,10 +307,10 @@ class GPMultiUpdateQFunction:
         duplicate_states = np.repeat(states, repeats=self._action_size, axis=0)
 
         if return_std:
-            q_values_mean, q_values_std = self.evaluate(states=duplicate_states, actions=all_actions, return_std=True, use_target=use_target)
+            q_values_mean, q_values_std = self.evaluate(states=duplicate_states, actions=all_actions, return_std=True)
             return q_values_mean.reshape(batch_size, -1), q_values_std.reshape(batch_size, -1)
         else:
-            q_values = self.evaluate(states=duplicate_states, actions=all_actions, return_std=False, use_target=use_target)
+            q_values = self.evaluate(states=duplicate_states, actions=all_actions, return_std=False)
             assert isinstance(q_values, np.ndarray)
             return q_values.reshape(batch_size, -1)
 
@@ -337,8 +337,7 @@ class GPMultiUpdateQFunction:
         self, 
         states: np.ndarray, 
         actions: np.ndarray,
-        return_std: bool = False,
-        use_target: bool = False
+        return_std: bool = False
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """ return shape [B] """
         input_values = self._buffer.stitch_state_action(states, actions)
@@ -355,11 +354,13 @@ class GPMultiUpdateQFunction:
         cur_q_estimate = self._gp.predict(state_action_pairs, return_std=False)
         cur_q_estimate = cur_q_estimate.reshape(-1, 1)
 
-        next_q_estimate = self(next_states, use_target=False)
-        assert isinstance(next_q_estimate, np.ndarray)
+        next_q_mean, next_q_std = self(next_states, return_std=True)
+
+        next_q_estimate = next_q_mean - next_q_std
         bellman_target = rewards + self._gamma * next_q_estimate.max(-1, keepdims=True) * (1 - terminals)
 
-        new_target = cur_q_estimate + 0.005 * (bellman_target - cur_q_estimate)
+        adaptive_lr = 0.03
+        new_target = cur_q_estimate + adaptive_lr * (bellman_target - cur_q_estimate)
         self._buffer.update_targets(new_target)
 
     def update(self) -> None:
@@ -473,6 +474,7 @@ class GPMultiUpdateQLImpl(SklearnImplBase):
 
     _gamma: float
     _q_func: Optional[GPMultiUpdateQFunction]
+    _max_buffer_size: int
     _action_size: int
     _observation_shape: Sequence[int]
 
@@ -481,6 +483,7 @@ class GPMultiUpdateQLImpl(SklearnImplBase):
         observation_shape: Sequence[int],
         action_size: int,
         gamma: float,
+        max_buffer_size: int = 500
     ):
         super().__init__(
             observation_shape=observation_shape,
@@ -489,6 +492,7 @@ class GPMultiUpdateQLImpl(SklearnImplBase):
         self._observation_shape = observation_shape
         self._action_size = action_size
         self._gamma = gamma
+        self._max_buffer_size = max_buffer_size
 
         # initialized in build
         self._q_func = None
@@ -500,7 +504,8 @@ class GPMultiUpdateQLImpl(SklearnImplBase):
         self._q_func = GPMultiUpdateQFunction(
             action_size=self._action_size, 
             observation_shape=self._observation_shape,
-            gamma=self._gamma
+            gamma=self._gamma,
+            max_buffer_size=self._max_buffer_size
         )
 
     def _predict_value(
@@ -539,11 +544,9 @@ class GPMultiUpdateQLImpl(SklearnImplBase):
         rewards = batch.rewards
         terminals = batch.terminals
 
-        next_q_values_mean, next_q_values_std = self._q_func(batch.next_observations, return_std=True)
-        next_conservative_q_values = next_q_values_mean
-        next_max_conservative_q_values = next_conservative_q_values.max(-1, keepdims=True)
+        next_q_values = self._q_func(batch.next_observations, return_std=False)
 
-        return rewards + self._gamma * next_max_conservative_q_values * (1 - terminals)
+        return rewards + self._gamma * next_q_values.max(-1, keepdims=True) * (1 - terminals)
 
     def compute_loss(
         self,
@@ -558,9 +561,8 @@ class GPMultiUpdateQLImpl(SklearnImplBase):
 
     def _predict_best_action(self, x: np.ndarray) -> np.ndarray:
         assert self._q_func is not None
-        q_values = self._q_func(x)
-        assert isinstance(q_values, np.ndarray)
-        return q_values.argmax(axis=-1)
+        q_values_mean, q_values_std = self._q_func(x, return_std=True)
+        return (q_values_mean - q_values_std).argmax(axis=-1)
 
     def _sample_action(self, x: np.ndarray) -> np.ndarray:
         return self._predict_best_action(x)

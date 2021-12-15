@@ -57,6 +57,7 @@ class GPMultiUpdateQL(AlgoBase):
 
     _impl: Optional[GPMultiUpdateQLImpl]
     _gamma: float
+    _max_buffer_size: int
 
     def __init__(
         self,
@@ -65,6 +66,7 @@ class GPMultiUpdateQL(AlgoBase):
         n_steps: int = 1,
         gamma: float = 0.99,
         impl: Optional[GPMultiUpdateQLImpl] = None,
+        max_buffer_size: int = 1000,
         **kwargs: Any,
     ):
         super().__init__(
@@ -80,6 +82,7 @@ class GPMultiUpdateQL(AlgoBase):
         )
         self._impl = impl
         self._gamma = gamma
+        self._max_buffer_size = max_buffer_size
 
     def _create_impl(
         self, observation_shape: Sequence[int], action_size: int
@@ -88,6 +91,7 @@ class GPMultiUpdateQL(AlgoBase):
             observation_shape=observation_shape,
             action_size=action_size,
             gamma=self._gamma,
+            max_buffer_size=self._max_buffer_size
         )
         self._impl.build()
     
