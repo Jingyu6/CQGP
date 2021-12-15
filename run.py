@@ -8,13 +8,13 @@ from d3rlpy.datasets import get_dataset
 from d3rlpy.metrics import evaluate_on_environment
 
 from visualization.data_plot import plot_records_in_dir
-from algos.gpql import GPQL, GPMultiUpdateQL
+from algos.cqgp import CQGP
 
 ENV_NAME = 'cartpole-random'
-LOG_DIR = os.path.join('d3rlpy_logs/real_run', ENV_NAME)
+LOG_DIR = os.path.join('d3rlpy_logs/', ENV_NAME)
 
-N_TRIALS = 3
-ALGOS = [DQN, DiscreteCQL, GPMultiUpdateQL]
+N_TRIALS = 5
+ALGOS = [CQGP, DQN, DiscreteCQL, DiscreteBC, DiscreteSAC, DiscreteBCQ]
 
 N_EPOCHS = 30
 
