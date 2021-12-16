@@ -4,21 +4,23 @@ from d3rlpy.constants import IMPL_NOT_INITIALIZED_ERROR, ActionSpace
 from d3rlpy.dataset import TransitionMiniBatch
 from d3rlpy.algos.base import AlgoBase
 
-from .sklearn_impl.gpql_impl import GPQLImpl
+from .sklearn_impl.cqgp_impl import CQGPImpl
 
 
-class GPQL(AlgoBase):
+class CQGP(AlgoBase):
 
-    _impl: Optional[GPQLImpl]
+    _impl: Optional[CQGPImpl]
     _gamma: float
+    _max_buffer_size: int
 
     def __init__(
         self,
         *,
-		batch_size: int = 32,
-		n_steps: int = 1,
-		gamma: float = 0.99,
-        impl: Optional[GPQLImpl] = None,
+        batch_size: int = 32,
+        n_steps: int = 1,
+        gamma: float = 0.99,
+        impl: Optional[CQGPImpl] = None,
+        max_buffer_size: int = 1000,
         **kwargs: Any,
     ):
         super().__init__(
@@ -34,14 +36,16 @@ class GPQL(AlgoBase):
         )
         self._impl = impl
         self._gamma = gamma
+        self._max_buffer_size = max_buffer_size
 
     def _create_impl(
         self, observation_shape: Sequence[int], action_size: int
     ) -> None:
-        self._impl = GPQLImpl(
+        self._impl = CQGPImpl(
             observation_shape=observation_shape,
-        	action_size=action_size,
-        	gamma=self._gamma,
+            action_size=action_size,
+            gamma=self._gamma,
+            max_buffer_size=self._max_buffer_size
         )
         self._impl.build()
     
