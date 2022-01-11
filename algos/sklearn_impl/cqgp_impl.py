@@ -158,7 +158,7 @@ class CQGPQFunction:
         self._update_steps = 30
 
         self._lr = 0.06
-        self._penalty_factor = 50
+        self._penalty_factor = 5
 
     def __call__(
         self, 
