@@ -51,7 +51,7 @@ def get_acrobot_v1(num_of_episodes: Optional[int]) -> Tuple[List[Episode], gym.E
 	num_of_episodes = num_of_episodes or 10
 	max_horizon = 1000
 
-	env = gym.make("MountainCar-v0")
+	env = gym.make("Acrobot-v1")
 	obs_dim = env.observation_space.shape[0]
 	action_dim = env.action_space.n
 

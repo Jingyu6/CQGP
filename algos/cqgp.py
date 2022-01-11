@@ -12,6 +12,7 @@ class CQGP(AlgoBase):
     _impl: Optional[CQGPImpl]
     _gamma: float
     _max_buffer_size: int
+    _q_std_multiplier: int
 
     def __init__(
         self,
@@ -21,6 +22,7 @@ class CQGP(AlgoBase):
         gamma: float = 0.99,
         impl: Optional[CQGPImpl] = None,
         max_buffer_size: int = 1000,
+        q_std_multiplier: int = 20,
         **kwargs: Any,
     ):
         super().__init__(
@@ -37,6 +39,7 @@ class CQGP(AlgoBase):
         self._impl = impl
         self._gamma = gamma
         self._max_buffer_size = max_buffer_size
+        self._q_std_multiplier = q_std_multiplier
 
     def _create_impl(
         self, observation_shape: Sequence[int], action_size: int
@@ -45,7 +48,8 @@ class CQGP(AlgoBase):
             observation_shape=observation_shape,
             action_size=action_size,
             gamma=self._gamma,
-            max_buffer_size=self._max_buffer_size
+            max_buffer_size=self._max_buffer_size,
+            q_std_multiplier=self._q_std_multiplier
         )
         self._impl.build()
     
