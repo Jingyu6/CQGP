@@ -157,7 +157,8 @@ class CQGPQFunction:
         self._update_interval = 20
         self._update_steps = 30
 
-        self._iter_cnt = 0
+        self._lr = 0.06
+        self._penalty_factor = 5
 
     def __call__(
         self, 
@@ -220,11 +221,12 @@ class CQGPQFunction:
 
         next_q_mean, next_q_std = self(next_states, return_std=True)
 
-        next_q_estimate = next_q_mean - next_q_std
+        # print(next_q_mean[0], next_q_std[0], abs(next_q_std[0][0] - next_q_std[0][1]))
+
+        next_q_estimate = next_q_mean - next_q_std * self._penalty_factor
         bellman_target = rewards + self._gamma * next_q_estimate.max(-1, keepdims=True) * (1 - terminals)
 
-        adaptive_lr = 0.03
-        new_target = cur_q_estimate + adaptive_lr * (bellman_target - cur_q_estimate)
+        new_target = cur_q_estimate + self._lr * (bellman_target - cur_q_estimate)
         self._buffer.update_targets(new_target)
 
     def update(self) -> None:
@@ -237,12 +239,14 @@ class CQGPQFunction:
                 self._gp.fit(input_values, output_values)
             self._cur_update_cnt = 0
 
+
 class CQGPImpl(SklearnImplBase):
 
     _gamma: float
     _q_func: Optional[CQGPQFunction]
     _max_buffer_size: int
     _action_size: int
+    _q_std_multiplier: int
     _observation_shape: Sequence[int]
 
     def __init__(
@@ -250,7 +254,8 @@ class CQGPImpl(SklearnImplBase):
         observation_shape: Sequence[int],
         action_size: int,
         gamma: float,
-        max_buffer_size: int = 500
+        max_buffer_size: int,
+        q_std_multiplier: int
     ):
         super().__init__(
             observation_shape=observation_shape,
@@ -260,6 +265,7 @@ class CQGPImpl(SklearnImplBase):
         self._action_size = action_size
         self._gamma = gamma
         self._max_buffer_size = max_buffer_size
+        self._q_std_multiplier = q_std_multiplier
 
         # initialized in build
         self._q_func = None
@@ -329,7 +335,7 @@ class CQGPImpl(SklearnImplBase):
     def _predict_best_action(self, x: np.ndarray) -> np.ndarray:
         assert self._q_func is not None
         q_values_mean, q_values_std = self._q_func(x, return_std=True)
-        return (q_values_mean - q_values_std).argmax(axis=-1)
+        return (q_values_mean - q_values_std * self._q_std_multiplier).argmax(axis=-1)
 
     def _sample_action(self, x: np.ndarray) -> np.ndarray:
         return self._predict_best_action(x)
