@@ -15,11 +15,12 @@ from datasets import get_episodes
 from visualization.data_plot import plot_records_in_dir
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-e", "--env", type=str, default='cartpole-random', choices=['cartpole-replay', 'cartpole-random'])
+parser.add_argument("-e", "--env", type=str, default='cartpole-random', choices=[
+	'cartpole-replay', 'cartpole-random', 'acrobot-replay'])
 parser.add_argument("-t", "--testing", action="store_true")
 parser.add_argument("-n", "--num_of_trials", type=int, default=5)
 parser.add_argument("-x", "--num_of_episodes", type=int, default=20)
-parser.add_argument("-i", "--num_of_epochs", type=int, default=20)
+parser.add_argument("-i", "--num_of_epochs", type=int, default=25)
 parser.add_argument("-m", "--q_std_multiplier", type=int, default=20)
 
 args = parser.parse_args()
@@ -28,7 +29,8 @@ print("Start experiments: ", args)
 
 if args.testing:
 	LOG_DIR = os.path.join('d3rlpy_logs/test', args.env)
-	shutil.rmtree(LOG_DIR)
+	if os.path.isdir(LOG_DIR):
+		shutil.rmtree(LOG_DIR)
 else:
 	LOG_DIR = os.path.join('d3rlpy_logs/', args.env)
 

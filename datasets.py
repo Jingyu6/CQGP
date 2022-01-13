@@ -8,6 +8,7 @@
 
 import os
 import gym # type: ignore
+import argparse
 import numpy as np
 
 from typing import Tuple, Optional, List, cast
@@ -47,13 +48,65 @@ def get_pendulum_v1(dataset_type: str = "replay") -> Tuple[MDPDataset, gym.Env]:
 
 	return dataset, env
 
-def get_acrobot_v1(num_of_episodes: Optional[int]) -> Tuple[List[Episode], gym.Env]:
-	num_of_episodes = num_of_episodes or 10
-	max_horizon = 1000
 
-	env = gym.make("Acrobot-v1")
+def get_ppo_dataset(env_name: str, dataset_type: str = "replay") -> Tuple[MDPDataset, gym.Env]:	
+	file_name = '{}_{}.h5'.format(env_name, dataset_type)
+	data_path = os.path.join(DATA_DIRECTORY, file_name)
+
+	if not os.path.exists(data_path):
+		raise ValueError(f"Dataset {data_path} not found. Please call generate dataset first.")		
+
+	# load dataset
+	dataset = MDPDataset.load(data_path)
+
+	# environment
+	env = gym.make('Acrobot-v1' if env_name == 'acrobot' else 'MountainCar-v0')
+
+	return dataset, env
+
+
+def _subsample_episodes(
+	dataset: MDPDataset, 
+	env: gym.Env, 
+	subsampled_size: Optional[int] = None
+) -> Tuple[List[Episode], gym.Env]:
+	if not subsampled_size:
+		return dataset.episodes, env
+	
+	sub_sampled_indices = np.random.choice(len(dataset.episodes), subsampled_size)
+	sub_sampled_episodes = []
+
+	for i in sub_sampled_indices:
+		sub_sampled_episodes.append(dataset.episodes[i])
+
+	return cast(List[Episode], sub_sampled_episodes), env
+
+
+def get_episodes(env_name: str, subsampled_size: Optional[int] = None) -> Tuple[List[Episode], gym.Env]:
+	if env_name == "pendulum-replay":
+		return _subsample_episodes(*get_pendulum_v1(dataset_type="replay"), subsampled_size)
+	elif env_name == "pendulum-random":
+		return _subsample_episodes(*get_pendulum_v1(dataset_type="random"), subsampled_size)
+	elif 'acrobot' in env_name or 'mountaincar' in env_name:
+		return _subsample_episodes(*get_ppo_dataset(*env_name.split('-')), subsampled_size)
+	else:
+		return _subsample_episodes(*d3rl_get_dataset(env_name), subsampled_size)
+
+
+def generate_dataset_by_PPO(
+	env_name: str, 
+	num_of_episodes: int = 20,
+	total_timesteps: int = 20000,
+	dataset_name: Optional[str] = None
+) -> None:
+	from stable_baselines3 import PPO
+
+	env = gym.make(env_name)
+
 	obs_dim = env.observation_space.shape[0]
-	action_dim = env.action_space.n
+
+	model = PPO("MlpPolicy", env)
+	model.learn(total_timesteps=total_timesteps)
 
 	observations = np.zeros((0, obs_dim), dtype=np.float32)
 	actions = np.zeros(0, dtype=np.int32)
@@ -61,17 +114,21 @@ def get_acrobot_v1(num_of_episodes: Optional[int]) -> Tuple[List[Episode], gym.E
 	terminals = np.zeros(0, dtype=np.float32)
 
 	for _ in range(num_of_episodes):
-		state = env.reset()
-		for _ in range(max_horizon):
-			action = np.random.choice(action_dim, 1)[0]
-			next_state, reward, done, _ = env.step(action)
+		obs = env.reset()
+		for i in range(120):
+			action, _ = model.predict(obs, deterministic=True)
+			next_obs, reward, done, _ = env.step(action)
 
-			observations = np.append(observations, [state], axis=0)
+			# manually set the terminal flat to be 1
+			if i == 119:
+				done = 1
+
+			observations = np.append(observations, [obs], axis=0)
 			actions = np.append(actions, action)
 			rewards = np.append(rewards, reward)
 			terminals = np.append(terminals, done)
 
-			state = next_state
+			obs = next_obs
 			if done:
 				break
 
@@ -83,29 +140,21 @@ def get_acrobot_v1(num_of_episodes: Optional[int]) -> Tuple[List[Episode], gym.E
 		discrete_action=True,
 	)
 
-	return dataset.episodes, env
+	print('Finished generating dataset, stats: {}'.format(dataset.compute_stats()))
+
+	dataset_path = \
+		'd3rlpy_data/{}_replay.h5'.format(env_name.split('_')[0].lower()) if not dataset_name else \
+		'd3rlpy_data/{}.h5'.format(dataset_name)
+	dataset.dump(dataset_path)
 
 
-def _subsample_episodes(
-	dataset: MDPDataset, 
-	env: gym.Env, 
-	subsampled_size: Optional[int] = None
-) -> Tuple[List[Episode], gym.Env]:
-	if not subsampled_size:
-		return dataset.episodes, env
-	
-	sub_sampled_episodes = np.random.choice(
-		np.array(dataset.episodes, dtype=object), subsampled_size)
-	
-	return cast(List[Episode], sub_sampled_episodes), env
+if __name__ == '__main__':
+	parser = argparse.ArgumentParser()
 
+	parser.add_argument("-e", "--env_name", type=str, default='Acrobot-v1', choices=['Acrobot-v1', 'MountainCar-v0', 'CartPole-v0'])
+	parser.add_argument("-x", "--num_of_episodes", type=int, default=20)
+	parser.add_argument("-i", "--total_timesteps", type=int, default=20000)
+	parser.add_argument("-n", "--dataset_name", type=str)
 
-def get_episodes(env_name: str, subsampled_size: Optional[int] = None) -> Tuple[List[Episode], gym.Env]:
-	if env_name == "pendulum-replay":
-		return _subsample_episodes(*get_pendulum_v1(dataset_type="replay"), subsampled_size)
-	elif env_name == "pendulum-random":
-		return _subsample_episodes(*get_pendulum_v1(dataset_type="random"), subsampled_size)
-	elif env_name == 'acrobot-random':
-		return get_acrobot_v1(subsampled_size)
-	else:
-		return _subsample_episodes(*d3rl_get_dataset(env_name), subsampled_size)
+	args = parser.parse_args()
+	generate_dataset_by_PPO(**vars(args))
