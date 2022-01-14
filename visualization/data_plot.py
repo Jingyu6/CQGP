@@ -38,7 +38,8 @@ def plot_records_list(
 	# truncate horizon (assuming monotonic increasing)
 	min_horizon = min([len(records.get_data()[horizon_name]) for records in records_list])
 
-	for algo_name in algo_to_records:
+	for algo_name in sorted(algo_to_records.keys()):
+		print(algo_name)
 		algo_records_list = algo_to_records[algo_name]
 
 		horizon = algo_records_list[0].get_data(min_horizon)[horizon_name]
@@ -53,7 +54,7 @@ def plot_records_list(
 		env_name, value_description, horizon_name, next(iter(experiment_counts))))
 	axes.set_ylabel(value_description)
 	axes.set_xlabel(horizon_name)
-	axes.legend(list(algo_to_records.keys()))
+	axes.legend(sorted(list(algo_to_records.keys())))
 
 def plot_records_in_dir(
 		log_dir: str,
